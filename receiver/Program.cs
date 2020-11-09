@@ -8,33 +8,46 @@ namespace sender
 {
     class Program
     {
-        public static CancellationToken _cancelationToken;
-        public static IConsumer<Ignore, string> consumer;
-
         static void Main(string[] args)
         {
-            Console.CancelKeyPress += CurrentDomain_ProcessExit;
-
-            var config = new List<KeyValuePair<string, string>>{
-                new KeyValuePair<string, string>("group.id", "consumer1"),
-                new KeyValuePair<string, string>("bootstrap.servers", "localhost:9092"),
-                new KeyValuePair<string, string>("enable.auto.commit", "false")
+            var conf = new ConsumerConfig
+            {
+                GroupId = "consumer-group",
+                BootstrapServers = "localhost:9092",
+                AutoOffsetReset = AutoOffsetReset.Earliest
             };
 
-            Program.consumer = new ConsumerBuilder<Ignore, string>(config).Build();
-            Program.consumer.Subscribe(new string[] { "demo" });
+            using var c = new ConsumerBuilder<Ignore, string>(conf).Build();
 
-            while (true)
+            c.Subscribe("demo");
+
+            // Because Consume is a blocking call, we want to capture Ctrl+C and use a cancellation token to get out of our while loop and close the consumer gracefully.
+            var cts = new CancellationTokenSource();
+            Console.CancelKeyPress += (_, e) =>
             {
-                var consumeResult = consumer.Consume();
-                Console.WriteLine($"Message Received: {consumeResult.Message.Value}");
-            }
-        }
+                Console.WriteLine("we just captured the process exit."); // <-- this is never reached.
+                e.Cancel = true;
+                cts.Cancel();
+            };
 
-        internal static void CurrentDomain_ProcessExit(object sender, EventArgs e)
-        {
-            Program.consumer.Close();
-            Console.WriteLine("we just captured the process exit."); // <-- this is never reached.
+            try
+            {
+                while (true)
+                {
+                    // Consume a message from the test topic. Pass in a cancellation token so we can break out of our loop when Ctrl+C is pressed
+                    var cr = c.Consume(cts.Token);
+                    Console.WriteLine($"Consumed message '{cr.Value}' from topic {cr.Topic}, partition {cr.Partition}, offset {cr.Offset}");
+
+                    // Do something interesting with the message you consumed
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                c.Close();
+            }
         }
     }
 }
