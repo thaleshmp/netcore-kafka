@@ -14,16 +14,39 @@ namespace producer
 {
     class Program
     {
+        static (string kafkaServer, int interval, string message) GetConfiguration()
+        {
+            Console.Write("Kafka Server: ");
+            var server = Console.ReadLine();
+
+            Console.Write("Interval between messages: ");
+            var interval = Console.ReadLine();
+
+            Console.Write("Message to broadcast: ");
+            var message = Console.ReadLine();
+
+            return (server, Int32.Parse(interval), message);
+        }
+
         static void Main(string[] args)
         {
-            int interval = 1000;
-            bool parsed = false;
-            if(args.Any())
-                parsed = Int32.TryParse(args[0], out interval);
+            var kafkaServer = "localhost:9092";
+            var messagingInterval = 500;
+            var message = "Message{counter}";
+
+            if(!(args.Any() && args[0] == "default"))
+            {
+                var config = GetConfiguration();
+                kafkaServer = config.kafkaServer;
+                messagingInterval = config.interval;
+                message = config.message;
+            }
+
+            var messageHasCounter = message.Contains("{counter}");
 
             var conf = new ProducerConfig
             {
-                BootstrapServers = "localhost:9092"
+                BootstrapServers = kafkaServer
             };
 
             var cts = new CancellationTokenSource();
@@ -41,12 +64,16 @@ namespace producer
             {
                 counter++;
 
-                producer.Produce("demo", new Message<Null, string> { Value = $"Message{counter}" }, (message) =>
+                var messageToSend = messageHasCounter ? 
+                    message.Replace("{counter}", counter.ToString()) :
+                    message;
+
+                producer.Produce("demo", new Message<Null, string> { Value = messageToSend }, (message) =>
                 {
-                    Console.WriteLine($"Message with content {message.Value} sended successfully");
+                    Console.WriteLine($"({counter}) Message with content {message.Value} sended successfully");
                 });
     
-                Thread.Sleep(TimeSpan.FromMilliseconds(parsed ? interval : 1000));
+                Thread.Sleep(TimeSpan.FromMilliseconds(messagingInterval));
             }
         }
     }
